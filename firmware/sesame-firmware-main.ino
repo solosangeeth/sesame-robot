@@ -9,11 +9,13 @@
 #include "face-bitmaps.h"
 #include "movement-sequences.h"
 #include "captive-portal.h"
+#include <IRremote.hpp> //irremote
 
 // --- Access Point Configuration ---
 // This is the network the Robot will create
 #define AP_SSID  "Sesame-Controller"
 #define AP_PASS  "12345678" // Must be at least 8 characters
+#define IR_RECEIVE_PIN 7 //irremote
 
 // --- Station Mode Configuration (Optional) ---
 // Set these to connect to your home/office WiFi network
@@ -189,6 +191,27 @@ const FaceFpsEntry faceFpsEntries[] = {
   { "thinking", 1 },
   { "talk_thinking", 1 },
 };
+//irremmote globals
+struct IrButton {
+  uint16_t code;
+  const char* command;   // "" = stop
+};
+
+const IrButton irButtons[] = {
+  { 0x18, "forward"  },   // replace with your codes
+  { 0x52, "backward" },
+  { 0x08, "left"     },
+  { 0x5A, "right"    },
+  { 0x1C, ""         },   // OK button = stop
+  { 0x45, "stand"    },
+  { 0x46, "rest"     },
+  { 0x47, "wave"     },
+  { 0x44, "dance"    },
+  { 0x40, "bow"      },
+  { 0x43, "pushup"   },
+  { 0x07, "cute"     },
+};
+
 
 
 // Prototypes
@@ -264,6 +287,27 @@ void handleCommandWeb() {
   }
   else {
     server.send(400, "text/plain", "Bad Args");
+  }
+}
+
+//IRREMOTE
+void handleIR() {
+  if (!IrReceiver.decode()) return;
+
+  uint16_t code = IrReceiver.decodedIRData.command;
+  bool isRepeat = IrReceiver.decodedIRData.flags & IRDATA_FLAGS_IS_REPEAT;
+  IrReceiver.resume();          // get ready for the next signal
+  if (isRepeat) return;         // ignore held-button repeats
+
+  for (size_t i = 0; i < sizeof(irButtons) / sizeof(irButtons[0]); i++) {
+    if (irButtons[i].code == code) {
+      currentCommand = irButtons[i].command;
+      recordInput();
+      if (currentCommand != "") exitIdle();
+      Serial.print("IR -> ");
+      Serial.println(currentCommand == "" ? "stop" : currentCommand);
+      return;
+    }
   }
 }
 
@@ -745,14 +789,14 @@ void setup() {
   
   // Show rest face on startup without moving motors
   setFace("rest");
-  
+  IrReceiver.begin(IR_RECEIVE_PIN, DISABLE_LED_FEEDBACK);//IRREMOTE
   Serial.println(F("HTTP server & Captive Portal started."));
 }
 
 void loop() {
   // Process DNS requests for captive portal
   dnsServer.processNextRequest();
-  
+  handleIR();//IRREMOTE
   server.handleClient();
   updateWifiSetup();
   updateAnimatedFace();
@@ -998,6 +1042,7 @@ void delayWithFace(unsigned long ms) {
     updateAnimatedFace();
     server.handleClient();
     dnsServer.processNextRequest();
+    handleIR();//IRREMOTE
     delay(5);
   }
 }
@@ -1062,6 +1107,7 @@ bool pressingCheck(String cmd, int ms) {
     server.handleClient();
     dnsServer.processNextRequest();
     updateAnimatedFace();
+    handleIR();
     if (currentCommand != cmd) {
       runStandPose(1);
       return false;
